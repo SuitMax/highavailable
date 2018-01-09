@@ -2,5 +2,5 @@ loadBalancerAddress = 127.0.0.1
 loadBalancerPort = 6600
 listenAddress = 0.0.0.0
 listenPort = 6600
-callerClass = suit.max.highavailable.test.CallerTest
-handlerClass = suit.max.highavailable.test.SyncEventHandlerTest
+callerClass = suit.max.highavailable.demo.CallerTest
+handlerClass = suit.max.highavailable.demo.SyncEventHandlerTest

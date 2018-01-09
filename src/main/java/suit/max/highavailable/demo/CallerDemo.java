@@ -1,4 +1,4 @@
-package suit.max.highavailable.test;
+package suit.max.highavailable.demo;
 
 import suit.max.highavailable.loadbalancer.EventCaller;
 import suit.max.highavailable.loadbalancer.LoadBalancer;
@@ -7,7 +7,7 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 
-public class CallerTest implements EventCaller {
+public class CallerDemo implements EventCaller {
 
 	private LoadBalancer loadBalancer;
 	private ServerSocket serverSocket;
@@ -52,7 +52,7 @@ public class CallerTest implements EventCaller {
 			while (true) {
 				temp = bufferedReader.readLine();
 				if (temp != null) {
-					loadBalancer.callEventListener(new SyncEventTest(temp));
+					loadBalancer.callEventListener(new SyncEventDemo(temp));
 				}
 			}
 		} catch (Exception e) {

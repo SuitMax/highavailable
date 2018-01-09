@@ -19,14 +19,16 @@ public class PropertiesHelper implements InvocationHandler, Serializable {
 
 	private static final Logger logger = LoggerFactory.getLogger(PropertiesHelper.class);
 
-	private Set<BufferedReader> propertiesFiles = null;
+	//private Set<BufferedReader> propertiesFiles = null;
+	private Properties properties = new Properties();
 	private Class clazz;
 
-	private PropertiesHelper(Class clazz) {
+	private PropertiesHelper(Class clazz) throws IOException, IllegalValueException {
 		this.clazz = clazz;
+		readProperties(getPropertiesFiles());
 	}
 
-	public static <T> T getProperties(Class<T> clazz) throws CanNotFindAnnotationException {
+	public static <T> T getProperties(Class<T> clazz) throws CanNotFindAnnotationException, IOException, IllegalValueException {
 
 		// check the class has been annotated correctly.
 		if (!(clazz.isAnnotationPresent(Location.class))) {
@@ -42,7 +44,7 @@ public class PropertiesHelper implements InvocationHandler, Serializable {
 	}
 
 	private Set<BufferedReader> getPropertiesFiles() {
-		Set<BufferedReader> properties = new HashSet<>();
+		Set<BufferedReader> propertiesBufferedReader = new HashSet<>();
 		Set<String> addresses = new HashSet<>();
 		String location = ((Location) clazz.getAnnotation(Location.class)).value();
 		String[] folders;
@@ -73,7 +75,7 @@ public class PropertiesHelper implements InvocationHandler, Serializable {
 							}
 						}
 						if (flag) {
-							properties.add(new BufferedReader(new FileReader(str + "/" + name)));
+							propertiesBufferedReader.add(new BufferedReader(new FileReader(str + "/" + name)));
 							addresses.add(str);
 							logger.info("Find properties file in {}.", str + "/" + name);
 							break;
@@ -102,7 +104,7 @@ public class PropertiesHelper implements InvocationHandler, Serializable {
 					}
 					if (flag) {
 						//logger.debug("Folder : ", tmp);
-						properties.add(new BufferedReader(new FileReader(tmp + "/" + name)));
+						propertiesBufferedReader.add(new BufferedReader(new FileReader(tmp + "/" + name)));
 						addresses.add(tmp);
 						logger.info("Find properties file in {}.", tmp + "/" + name);
 					}
@@ -111,17 +113,55 @@ public class PropertiesHelper implements InvocationHandler, Serializable {
 				}
 			}
 		}
-		return properties;
+		return propertiesBufferedReader;
+	}
+
+	private void readProperties(Set<BufferedReader> propertiesFiles) throws IOException, IllegalValueException {
+		String line;
+		if (propertiesFiles.isEmpty()) {
+			throw new IOException("Can not find properties file.");
+		}
+		for (BufferedReader propertiesReader : propertiesFiles) {
+			while ((line = propertiesReader.readLine()) != null) {
+				String[] str = line.split("\\s*=\\s*");
+				if (str.length > 2) {
+					throw new IllegalValueException("Wrong syntax in property : " + str[0]);
+				}
+				if (str[1] != null && !"".equals(str[1].replaceAll("\\s", ""))) {
+					properties.put(str[0], str[1]);
+					logger.info("Load property {} : {}", str[0], str[1]);
+				} else {
+					properties.put(str[0], null);
+				}
+			}
+		}
 	}
 
 	@Override
 	public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-		String line;
-		propertiesFiles = getPropertiesFiles();
 		Class returnType = method.getAnnotation(ReturnType.class).value();
-		if (propertiesFiles.isEmpty()) {
-			throw new IOException("Can not find properties file.");
+		String property = (String) properties.get(method.getAnnotation(PropertyName.class).value());
+		if (property != null) {
+			if (!method.getReturnType().equals(returnType)) {
+				return new IllegalValueException("Need return type " + returnType.getName() + ", but found " + method.getReturnType().getName() + ".");
+			}
+			if (returnType.equals(String.class)) {
+				return property;
+			}
+			return returnType.getMethod("valueOf", String.class).invoke(null, property);
 		}
+		if (method.isAnnotationPresent(DefaultValue.class)) {
+			String value = method.getAnnotation(DefaultValue.class).value();
+			logger.info("Loading default value : {}.", value);
+			if (returnType.equals(String.class)) {
+				return value;
+			}
+			return returnType.getMethod("valueOf", returnType).invoke(null, value);
+		}
+		return null;
+
+		/*
+		String line;
 		for (BufferedReader properties : propertiesFiles) {
 			while ((line = properties.readLine()) != null) {
 				String[] str = line.split("\\s*=\\s*");
@@ -139,14 +179,6 @@ public class PropertiesHelper implements InvocationHandler, Serializable {
 				}
 			}
 		}
-		if (method.isAnnotationPresent(DefaultValue.class)) {
-			String value = method.getAnnotation(DefaultValue.class).value();
-			logger.info("Loading default value : {}.", value);
-			if (returnType.equals(String.class)) {
-				return value;
-			}
-			return returnType.getMethod("valueOf", returnType).invoke(null, value);
-		}
-		return null;
+		*/
 	}
 }

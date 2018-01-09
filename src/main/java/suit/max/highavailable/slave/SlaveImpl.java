@@ -66,19 +66,28 @@ public class SlaveImpl extends UnicastRemoteObject implements Slave {
 		for (EventCaller caller : callers) {
 			try {
 				loadBalancer.registerCaller(new ClassReader(caller.getClass().getName()).b);
+				logger.info("Caller {} registered.", caller.getClass().getName());
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
 	}
 
-	private void reRegisterCallers() throws RemoteException {
-		loadBalancer.unregisterAllCaller();
+	private void reRegisterCallers() {
+		try {
+			loadBalancer.unregisterAllCaller();
+		} catch (RemoteException e) {
+			logger.warn("LoadBalancer disconnected.");
+		}
 		registerCallers();
 	}
 
-	void unbind() throws RemoteException {
-		loadBalancer.unregisterSlave(rmiAddr);
+	private void unbind() {
+		try {
+			loadBalancer.unregisterSlave(rmiAddr);
+		} catch (RemoteException e) {
+			logger.warn("LoadBalancer disconnected.");
+		}
 	}
 
 	@Override
@@ -89,18 +98,18 @@ public class SlaveImpl extends UnicastRemoteObject implements Slave {
 		loadBalancer = (LoadBalancer) Naming.lookup("rmi://" + config.loadBalancerAddress() + ":" + String.valueOf(config.loadBalancerPort()) + "/suit.max.highavailable.loadbalancer.LoadBalancer");
 		logger.debug("binding slave.");
 		loadBalancer.registerSlave("rmi://" + getIP() + ":" + String.valueOf(config.loadBalancerPort()) + "/suit.max.highavailable.slave.Slave");
-		addCaller(config.callerClass());
-		reRegisterCallers();
-		addHandler(config.handlerClass());
+		if (config.callerClass() != null && !"".equals(config.callerClass())) {
+			addCaller(config.callerClass());
+			reRegisterCallers();
+		}
+		if (config.handlerClass() != null && !"".equals(config.handlerClass())) {
+			addHandler(config.handlerClass());
+		}
 	}
 
 	@Override
 	public void stop() {
-		try {
-			unbind();
-		} catch (RemoteException e) {
-			e.printStackTrace();
-		}
+		unbind();
 	}
 
 	@Override
@@ -133,13 +142,12 @@ public class SlaveImpl extends UnicastRemoteObject implements Slave {
 		try {
 			allNetInterfaces = NetworkInterface.getNetworkInterfaces();
 		} catch (SocketException e) {
-			e.printStackTrace();
+			logger.error(e.toString());
 		}
 		InetAddress ip = null;
 		while (allNetInterfaces.hasMoreElements())
 		{
 			NetworkInterface netInterface = (NetworkInterface) allNetInterfaces.nextElement();
-			System.out.println(netInterface.getName());
 			Enumeration addresses = netInterface.getInetAddresses();
 			while (addresses.hasMoreElements())
 			{

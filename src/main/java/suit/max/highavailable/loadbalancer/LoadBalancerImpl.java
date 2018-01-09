@@ -17,10 +17,7 @@ import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalancer {
 
@@ -70,9 +67,14 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 	}
 
 	@Override
-	public void stop() throws RemoteException {
+	public void stop() {
 		for (Slave slave : slaves) {
-			slave.stop();
+			try {
+				slave.stop();
+				logger.info("Slave {} unregistered.", slaveAddresses.get(slave));
+			} catch (RemoteException e) {
+				logger.warn("Slave {} disconnected.", slaveAddresses.get(slave));
+			}
 		}
 		stopFlag = true;
 		taskExecutor.shutdown();
@@ -80,12 +82,16 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 	}
 
 	@Override
-	public void registerSlave(String slaveRmi) throws RemoteException, NotBoundException, MalformedURLException {
-		Slave slave = (Slave) Naming.lookup(slaveRmi);
-		slaveRmiMap.put(slaveRmi, slave);
-		slaveAddresses.put(slave, slaveRmi.replace("rmi://","").replace("/suit.max.highavailable.loadbalancer.LoadBalancer", ""));
-		slaves.add(slave);
-		logger.info("Slave registered.");
+	public void registerSlave(String slaveRmi) {
+		try {
+			Slave slave = (Slave) Naming.lookup(slaveRmi);
+			slaveRmiMap.put(slaveRmi, slave);
+			slaveAddresses.put(slave, slaveRmi.replace("rmi://", "").replace("/suit.max.highavailable.loadbalancer.LoadBalancer", ""));
+			slaves.add(slave);
+			logger.info("Slave registered.");
+		} catch (NotBoundException | RemoteException | MalformedURLException e) {
+			logger.warn("Exception when register slave {}, {}", slaveRmi, e.toString());
+		}
 	}
 
 	@Override
@@ -101,11 +107,18 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 		slaves.remove(slave);
 		slaveRmiMap.remove(slaveRmi);
 		if (slaves.isEmpty()) {
+			logger.warn("All the slave disconnected, please run a slave to continue.");
 			unregisterAllCaller();
 		}
 	}
 
-	private void unregisterSlave(Slave slave) {
+	private void removeSlave(Slave slave) {
+		try {
+			slave.stop();
+			logger.info("Slave {} unregistered.", slaveAddresses.get(slave));
+		} catch (RemoteException e) {
+			logger.warn("Slave {} disconnected.", slaveAddresses.get(slave));
+		}
 		slaveRmiMap.remove("rmi://" + slaveAddresses.get(slave) + "/suit.max.highavailable.loadbalancer.LoadBalancer");
 		slaveAddresses.remove(slave);
 		for (Integer key : eventMap.keySet()) {
@@ -116,6 +129,7 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 		lightestSlave = null;
 		slaves.remove(slave);
 		if (slaves.isEmpty()) {
+			logger.warn("All the slave has been disconnected, please run a slave to continue.");
 			unregisterAllCaller();
 		}
 	}
@@ -129,7 +143,7 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 			caller.setLoadBalancer(this);
 			eventCallers.add(caller);
 			callerExecutor.execute(caller);
-			logger.info("Caller registered.");
+			logger.info("Caller {} registered.", caller.getClass().getName());
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -155,30 +169,75 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 	}
 
 	@Override
-	public synchronized void callEventListener(AsyncEvent event) throws RemoteException {
+	public synchronized void callEventListener(AsyncEvent event) {
 		waitForSlave();
 		logger.debug("Calling slave for message {}.", event);
+		boolean flag = true;
 		if (event instanceof TransactionalEvent) {
-			TransactionalEvent transactionalEvent = (TransactionalEvent) event;
-			if (eventMap.get(transactionalEvent.getId()) != null) {
-				eventMap.get(transactionalEvent.getId()).handleEvent(event);
-			} else {
-				eventMap.put(transactionalEvent.getId(), lightestSlave);
+			while (flag) {
+				TransactionalEvent transactionalEvent = (TransactionalEvent) event;
+				if (eventMap.get(transactionalEvent.getId()) != null) {
+					try {
+						eventMap.get(transactionalEvent.getId()).handleEvent(event);
+						flag = false;
+					} catch (RemoteException e) {
+						Slave timeoutSlave = eventMap.get(transactionalEvent.getId());
+						removeSlave(timeoutSlave);
+						logger.warn("Slave {} timeout, redirect to other slave.", slaveAddresses.get(timeoutSlave));
+						if (slaves.isEmpty()) {
+							return;
+						}
+					}
+				} else {
+					Slave slave = lightestSlave;
+					eventMap.put(transactionalEvent.getId(), slave);
+					try {
+						slave.handleEvent(event);
+						flag = false;
+					} catch (RemoteException e) {
+						Slave timeoutSlave = eventMap.get(transactionalEvent.getId());
+						removeSlave(timeoutSlave);
+						logger.warn("Slave {} timeout, redirect to other slave.", slaveAddresses.get(timeoutSlave));
+						if (slaves.isEmpty()) {
+							return;
+						}
+					}
+				}
 			}
 		} else {
-			while (lightestSlave == null) {
-				updateHandler();
+			while (flag) {
+				Slave slave;
+				while ((slave = lightestSlave) == null) {
+					updateHandler();
+				}
+				try {
+					slave.handleEvent(event);
+					flag = false;
+				} catch (RemoteException e) {
+					removeSlave(slave);
+					logger.warn("Slave {} timeout, redirect to other slave.", slaveAddresses.get(slave));
+					if (slaves.isEmpty()) {
+						return;
+					}
+				}
+
 			}
-			lightestSlave.handleEvent(event);
 		}
 	}
 
 	@Override
-	public synchronized void callEventListener(SynchronizedEvent event) throws RemoteException {
+	public synchronized void callEventListener(SynchronizedEvent event) {
 		waitForSlave();
-		for (Slave slave : slaves) {
+		Iterator<Slave> it = slaves.iterator();
+		while (it.hasNext()) {
+			Slave slave = it.next();
 			logger.debug("Calling slave {} for message {}.", slave, event);
-			slave.handleEvent(event);
+			try {
+				slave.handleEvent(event);
+			} catch (RemoteException e) {
+				removeSlave(slave);
+				logger.warn("Slave {} timeout, redirect to other slave.", slaveAddresses.get(slave));
+			}
 		}
 	}
 
@@ -189,7 +248,7 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 	}
 
 	private void sleep() {
-		while(slaves.isEmpty()) {
+		while (slaves.isEmpty()) {
 			try {
 				Thread.sleep(WAIT_TIME);
 			} catch (InterruptedException e) {
@@ -198,21 +257,23 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 		}
 	}
 
-	private void updateHandler() {
+	private synchronized void updateHandler() {
 		if (slaves.isEmpty()) {
 			logger.warn("There is no slave available, please register slaves to start service.");
 			sleep();
 			return;
 		}
 		int tmp = Integer.MAX_VALUE;
-		for (Slave slave : slaves) {
+		Iterator<Slave> it = slaves.iterator();
+		while(it.hasNext()) {
+			Slave slave = it.next();
 			try {
 				if (tmp > slave.getLoad()) {
 					lightestSlave = slave;
 				}
 			} catch (RemoteException e) {
-				logger.warn("Slave {} disconnected, remove.", slaveAddresses.get(slave));
-				unregisterSlave(slave);
+				logger.warn("Slave {} timeout, remove.", slaveAddresses.get(slave));
+				removeSlave(slave);
 			}
 		}
 	}

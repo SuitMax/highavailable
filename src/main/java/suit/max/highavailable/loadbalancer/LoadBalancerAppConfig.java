@@ -7,11 +7,13 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import suit.max.highavailable.config.LoadBalancerConfiguration;
 import suit.max.highavailable.exceptions.CanNotFindAnnotationException;
+import suit.max.highavailable.exceptions.IllegalValueException;
 import suit.max.utils.properties.PropertiesHelper;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.rmi.AlreadyBoundException;
 import java.rmi.RemoteException;
@@ -29,7 +31,7 @@ public class LoadBalancerAppConfig {
     }
 
     @Bean
-    public LoadBalancerConfiguration getLoadBalancerConfiguration() throws CanNotFindAnnotationException {
+    public LoadBalancerConfiguration getLoadBalancerConfiguration() throws CanNotFindAnnotationException, IOException, IllegalValueException {
         return PropertiesHelper.getProperties(LoadBalancerConfiguration.class);
     }
 
