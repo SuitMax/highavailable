@@ -45,7 +45,7 @@ public class SlaveImpl extends UnicastRemoteObject implements Slave {
 	}
 
 	private void addHandler(String handlers) throws ClassNotFoundException, IllegalAccessException, InstantiationException, NoSuchMethodException, InvocationTargetException {
-		for (String clazz : handlers.split("[\\s]*;[\\s]*")) {
+		for (String clazz : handlers.replaceAll(",", ";").split("[\\s]*;[\\s]*")) {
 			HAEventHandler handler = (HAEventHandler) Class.forName(clazz).getConstructor().newInstance();
 			if (handler instanceof AsyncEventHandler) {
 				asyncEventHandlers.add((AsyncEventHandler) handler);
@@ -56,7 +56,7 @@ public class SlaveImpl extends UnicastRemoteObject implements Slave {
 	}
 
 	private void addCaller(String classes) throws ClassNotFoundException, IllegalAccessException, InstantiationException, NoSuchMethodException, InvocationTargetException {
-		for (String clazz : classes.split("[\\s]*;[\\s]*")) {
+		for (String clazz : classes.replaceAll(",", ";").split("[\\s]*;[\\s]*")) {
 			EventCaller caller = (EventCaller) Class.forName(clazz).getConstructor().newInstance();
 			callers.add(caller);
 		}

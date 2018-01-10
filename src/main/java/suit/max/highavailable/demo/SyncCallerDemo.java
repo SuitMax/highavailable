@@ -7,13 +7,11 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 
-public class CallerDemo implements EventCaller {
+public class SyncCallerDemo implements EventCaller {
 
 	private LoadBalancer loadBalancer;
 	private ServerSocket serverSocket;
-	private Socket socket;
-	private InputStream inputStream;
-	private BufferedReader bufferedReader;
+	private boolean isRunning = false;
 
 	@Override
 	public void setLoadBalancer(LoadBalancer loadBalancer) {
@@ -23,36 +21,41 @@ public class CallerDemo implements EventCaller {
 	@Override
 	public void shutdown() {
 		try {
-			if (bufferedReader != null) {
-				bufferedReader.close();
-			}
-			if (inputStream != null) {
-				inputStream.close();
-			}
-			if (socket != null) {
-				socket.shutdownOutput();
-				socket.close();
-			}
-			if (serverSocket != null) {
+			if (serverSocket != null && !serverSocket.isClosed()) {
 				serverSocket.close();
 			}
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+		isRunning = false;
 	}
 
 	@Override
 	public void run() {
 		try {
 			serverSocket = new ServerSocket(8888);
-			socket = serverSocket.accept();
-			inputStream = socket.getInputStream();
-			bufferedReader = new BufferedReader(new InputStreamReader(inputStream));
-			String temp;
-			while (true) {
+			isRunning = true;
+			Socket socket;
+			InputStream inputStream;
+			BufferedReader bufferedReader;
+			while (isRunning) {
+				socket = serverSocket.accept();
+				inputStream = socket.getInputStream();
+				bufferedReader = new BufferedReader(new InputStreamReader(inputStream));
+				String temp;
 				temp = bufferedReader.readLine();
 				if (temp != null) {
 					loadBalancer.callEventListener(new SyncEventDemo(temp));
+				}
+				try {
+					bufferedReader.close();
+					inputStream.close();
+					if (!socket.isClosed()) {
+						socket.shutdownOutput();
+						socket.close();
+					}
+				} catch (Exception e) {
+					e.printStackTrace();
 				}
 			}
 		} catch (Exception e) {

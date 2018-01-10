@@ -19,7 +19,6 @@ public class PropertiesHelper implements InvocationHandler, Serializable {
 
 	private static final Logger logger = LoggerFactory.getLogger(PropertiesHelper.class);
 
-	//private Set<BufferedReader> propertiesFiles = null;
 	private Properties properties = new Properties();
 	private Class clazz;
 
@@ -159,26 +158,5 @@ public class PropertiesHelper implements InvocationHandler, Serializable {
 			return returnType.getMethod("valueOf", returnType).invoke(null, value);
 		}
 		return null;
-
-		/*
-		String line;
-		for (BufferedReader properties : propertiesFiles) {
-			while ((line = properties.readLine()) != null) {
-				String[] str = line.split("\\s*=\\s*");
-				if (str[0].equals(method.getAnnotation(PropertyName.class).value())) {
-					if (str.length != 2) {
-						throw new IllegalValueException("Wrong value in property : " + str[0]);
-					}
-					if (!method.getReturnType().equals(returnType)) {
-						return new IllegalValueException("Need return type " + returnType.getName() + ", but found " + method.getReturnType().getName() + ".");
-					}
-					if (returnType.equals(String.class)) {
-						return str[1];
-					}
-					return returnType.getMethod("valueOf", String.class).invoke(null, str[1]);
-				}
-			}
-		}
-		*/
 	}
 }

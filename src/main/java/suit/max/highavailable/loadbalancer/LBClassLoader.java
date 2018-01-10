@@ -7,13 +7,12 @@ import org.springframework.asm.ClassReader;
 public class LBClassLoader extends ClassLoader {
 
     private static final Logger logger = LoggerFactory.getLogger(LBClassLoader.class);
-    private static final LBClassLoader loader = new LBClassLoader();
 
     public Class<?> loadClass(byte[] b) throws Exception {
         ClassReader reader = new ClassReader(b);
         Class<?> clazz;
         boolean flag = true;
-        logger.debug("EventCaller class name {}", EventCaller.class.getName().replaceAll("\\.","/"));
+        //logger.debug("EventCaller class name {}", EventCaller.class.getName().replaceAll("\\.","/"));
         logger.debug("input class name {}", reader.getClassName());
         for (String intf : reader.getInterfaces()) {
             logger.debug("input class interface name {}", intf);

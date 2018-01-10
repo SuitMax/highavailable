@@ -137,7 +137,6 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 	@Override
 	public synchronized void registerCaller(byte[] b) {
 		try {
-			unregisterAllCaller();
 			Class<EventCaller> c = (Class<EventCaller>) loader.loadClass(b);
 			EventCaller caller = c.getConstructor().newInstance();
 			caller.setLoadBalancer(this);
@@ -189,7 +188,10 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 						}
 					}
 				} else {
-					Slave slave = lightestSlave;
+					Slave slave;
+					while ((slave = lightestSlave) == null) {
+						updateHandler();
+					}
 					eventMap.put(transactionalEvent.getId(), slave);
 					try {
 						slave.handleEvent(event);
@@ -264,9 +266,10 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 			return;
 		}
 		int tmp = Integer.MAX_VALUE;
-		Iterator<Slave> it = slaves.iterator();
-		while(it.hasNext()) {
-			Slave slave = it.next();
+		for (Slave slave : new HashSet<>(slaves)) {
+			if (!slaves.contains(slave)) {
+				break;
+			}
 			try {
 				if (tmp > slave.getLoad()) {
 					lightestSlave = slave;
@@ -274,6 +277,8 @@ public class LoadBalancerImpl extends UnicastRemoteObject implements LoadBalance
 			} catch (RemoteException e) {
 				logger.warn("Slave {} timeout, remove.", slaveAddresses.get(slave));
 				removeSlave(slave);
+				lightestSlave = null;
+				tmp = Integer.MAX_VALUE;
 			}
 		}
 	}
